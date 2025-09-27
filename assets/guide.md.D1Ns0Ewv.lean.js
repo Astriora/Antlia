@@ -1,0 +1,1 @@
+import{_ as e,c as r,o as a,ae as o}from"./chunks/framework.Ck3L_38O.js";const g=JSON.parse('{"title":"项目脚本状态","description":"","frontmatter":{},"headers":[],"relativePath":"guide.md","filePath":"guide.md"}'),s={name:"guide.md"};function i(l,t,n,_,d,c){return a(),r("div",null,[...t[0]||(t[0]=[o("",2)])])}const p=e(s,[["render",i]]);export{g as __pageData,p as default};
