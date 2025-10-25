@@ -4,7 +4,8 @@
 # 配置部分
 # =============================================================================
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PATH_CONFIG_FILE="$SCRIPT_DIR/path.conf"
+PATH_CONFIG_FILE="$HOME/.local/bin/MoFox_Bot/path.conf"
+
 
 # 颜色定义
 RESET='\033[0m'
