@@ -460,7 +460,7 @@ download_script() {
     $SUDO ln -sf "$TARGET_FILE" /usr/local/bin/mofox
 
     # 直接写 path.conf 到用户目录，不用初始化
-    echo "$LOCAL_BIN" > "$TARGET_DIR/path.conf"
+    echo "$DEPLOY_DIR" > "$TARGET_DIR/path.conf"
     ok "路径配置文件已写入: $TARGET_DIR/path.conf"
 
     ok "mofox 已准备就绪"
