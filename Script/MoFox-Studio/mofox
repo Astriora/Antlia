@@ -184,26 +184,19 @@ main() {
     if [[ $1 == --init=* ]]; then
         local init_path="${1#*=}"
 
-        # 处理相对路径
-        if [[ ! "$init_path" = /* ]]; then
-            if ! init_path="$(cd "$init_path" 2>/dev/null && pwd)"; then
-                error "路径不存在: ${1#*=}"
-                exit 1
-            fi
-        fi
-
         # 验证路径
         if [ ! -d "$init_path/MoFox_Bot" ]; then
             error "未找到 MoFox_Bot 目录: $init_path/MoFox_Bot"
             exit 1
         fi
 
-        # 写入配置文件
+      # 写入配置文件
         echo "$init_path" >"$PATH_CONFIG_FILE"
         success "路径配置成功: $init_path"
         success "配置文件: $PATH_CONFIG_FILE"
         exit 0
     fi
+
 
     # 初始化路径
     init_paths
