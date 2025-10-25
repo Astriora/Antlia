@@ -446,7 +446,8 @@ install_python_dependencies() {
 }
 
 download_script() {
-    local DOWNLOAD_URL="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/MoFox-Studio/mofox"
+    #local DOWNLOAD_URL="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/MoFox-Studio/mofox"
+    local DOWNLOAD_URL="${GITHUB_PROXY}https://raw.githubusercontent.com/Astriora/Antlia/refs/heads/dev/Script/MoFox-Studio/mofox"
     local TARGET_DIR="$LOCAL_BIN/MoFox_Bot"
     local TARGET_FILE="$TARGET_DIR/mofox"
 
