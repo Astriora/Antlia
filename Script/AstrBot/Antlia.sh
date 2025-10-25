@@ -174,50 +174,57 @@ check_root_or_sudo() {
 # GitHub 代理选择
 # =============================================================================
 
-select_github_proxy() {       #定义函数
-	print_title "选择 GitHub 代理"   #打印标题
-	echo "请根据您的网络环境选择一个合适的下载代理：" #打印提示
-	echo                         #打印空行
+select_github_proxy() {
+    print_title "选择 GitHub 代理"
+    echo "请根据您的网络环境选择一个合适的下载代理："
+    echo
 
-	# 使用 select 提供选项
-	select proxy_choice in "ghfast.top 镜像 (推荐)" "ghproxy.net 镜像" "不使用代理" "自定义代理"; do
-		case $proxy_choice in
-		"ghfast.top 镜像 (推荐)")
-			GITHUB_PROXY="https://ghfast.top/"
-			ok "已选择: ghfast.top 镜像"
-			break
-			;;
-		"ghproxy.net 镜像")
-			GITHUB_PROXY="https://ghproxy.net/"
-			ok "已选择: ghproxy.net 镜像"
-			break
-			;;
-		"不使用代理")
-			GITHUB_PROXY=""
-			ok "已选择: 不使用代理"
-			break
-			;;
-		"自定义代理")
-			# 允许用户输入自定义代理
-			read -rp "请输入自定义 GitHub 代理 URL (必须以斜杠 / 结尾): " custom_proxy
-			# 检查自定义代理是否以斜杠结尾
-			if [[ -n "$custom_proxy" && "$custom_proxy" != */ ]]; then
-				custom_proxy="${custom_proxy}/" # 如果没有斜杠，自动添加
-				warn "自定义代理 URL 没有以斜杠结尾，已自动添加斜杠"
-			fi
-			GITHUB_PROXY="$custom_proxy"
-			ok "已选择: 自定义代理 - $GITHUB_PROXY"
-			break
-			;;
-		*)
-			warn "无效输入，使用默认代理"
-			GITHUB_PROXY="https://ghfast.top/"
-			ok "已选择: ghfast.top 镜像 (默认)"
-			break
-			;;
-		esac
-	done
-} #结束函数定义                                                            #结束函数定义
+    select proxy_choice in "ghfast.top 镜像 (推荐)" "ghproxy.net 镜像" "不使用代理" "自定义代理"; do
+        case $proxy_choice in
+        "ghfast.top 镜像 (推荐)")
+            GITHUB_PROXY="https://ghfast.top/"
+            ok "已选择: ghfast.top 镜像"
+            break
+            ;;
+        "ghproxy.net 镜像")
+            GITHUB_PROXY="https://ghproxy.net/"
+            ok "已选择: ghproxy.net 镜像"
+            break
+            ;;
+        "不使用代理")
+            GITHUB_PROXY=""
+            ok "已选择: 不使用代理"
+            break
+            ;;
+        "自定义代理")
+            read -rp "请输入自定义 GitHub 代理 URL (如 ghfast.top/ 或 https://ghfast.top/, 必须以斜杠 / 结尾): " custom_proxy
+
+            # 自动加 https://（如果没有写协议）
+            if [[ "$custom_proxy" != http*://* ]]; then
+                custom_proxy="https://$custom_proxy"
+                warn "代理 URL 没有写协议，已自动加 https://"
+            fi
+
+            # 自动添加结尾斜杠
+            if [[ "$custom_proxy" != */ ]]; then
+                custom_proxy="${custom_proxy}/"
+                warn "代理 URL 没有以斜杠结尾，已自动添加斜杠"
+            fi
+
+            GITHUB_PROXY="$custom_proxy"
+            ok "已选择: 自定义代理 - $GITHUB_PROXY"
+            break
+            ;;
+        *)
+            warn "无效输入，使用默认代理"
+            GITHUB_PROXY="https://ghfast.top/"
+            ok "已选择: ghfast.top 镜像 (默认)"
+            break
+            ;;
+        esac
+    done
+}
+
 
 #------------------------------------------------------------------------------
 

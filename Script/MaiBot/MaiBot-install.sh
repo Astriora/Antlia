@@ -2,13 +2,36 @@
 
 # 获取脚本绝对路径
 set -euo pipefail
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)" # 获取脚本所在目录
-DEPLOY_DIR="$SCRIPT_DIR" # 部署目录
+get_script_dir() {
+	local source="${BASH_SOURCE[0]}"
+
+	# 检查是否来自进程替换（如 bash <(curl ...)）
+	if [[ "$source" == /dev/fd/* ]] || [[ ! -f "$source" ]]; then
+		# 无法定位真实脚本文件，使用当前工作目录
+		pwd
+	else
+		# 正常情况：解析脚本真实路径
+		(cd "$(dirname "$source")" && pwd)
+	fi
+}
+
+SCRIPT_DIR="$(get_script_dir)"
+DEPLOY_DIR="$SCRIPT_DIR"
 LOG_FILE="$SCRIPT_DIR/script.log" #  日志文件路径
 DEPLOY_STATUS_FILE="$SCRIPT_DIR/MaiBot/deploy.status" # 部署状态文件
 LOCAL_BIN="$HOME/.local/bin" 
 MAIBOT_BIN="$LOCAL_BIN/maibot"
 
+echo "SCRIPT_DIR: $SCRIPT_DIR"
+echo "DEPLOY_DIR: $DEPLOY_DIR"
+
+# 检查是否为异常目录（如 /dev/fd、/proc/self/fd 等）
+if [[ "$DEPLOY_DIR" == /dev/fd/* ]] || [[ "$DEPLOY_DIR" == /proc/self/fd/* ]] || [[ ! -d "$DEPLOY_DIR" ]]; then
+	echo -e "\e[31m警告：检测到部署目录异常！可能因使用 'bash <(curl ...)' 导致路径错误。\e[0m"
+	echo -e "\e[33m建议：将脚本下载到本地后运行，或确保当前目录可写。\e[0m"
+else
+	echo -e "\e[32m目录正常，可安全部署。\e[0m"
+fi
 # 检查命令是否存在
 command_exists() {
     command -v "$1" >/dev/null 2>&1 # 检查命令是否存在
@@ -70,50 +93,57 @@ download_with_retry() {                                   #定义函数
     err "所有下载尝试都失败了"                                   #打印错误日志并退出
 }                                                             #结束函数定义
 
-select_github_proxy() {                                               #定义函数
-    print_title "选择 GitHub 代理"                                     #打印标题
-    echo "请根据您的网络环境选择一个合适的下载代理："                        #打印提示
-    echo                                                             #打印空行
+select_github_proxy() {
+    print_title "选择 GitHub 代理"
+    echo "请根据您的网络环境选择一个合适的下载代理："
+    echo
 
-    # 使用 select 提供选项
     select proxy_choice in "ghfast.top 镜像 (推荐)" "ghproxy.net 镜像" "不使用代理" "自定义代理"; do
         case $proxy_choice in
-            "ghfast.top 镜像 (推荐)") 
-                GITHUB_PROXY="https://ghfast.top/"; 
-                ok "已选择: ghfast.top 镜像" 
-                break
-                ;;
-            "ghproxy.net 镜像") 
-                GITHUB_PROXY="https://ghproxy.net/"; 
-                ok "已选择: ghproxy.net 镜像" 
-                break
-                ;;
-            "不使用代理") 
-                GITHUB_PROXY=""; 
-                ok "已选择: 不使用代理" 
-                break
-                ;;
-            "自定义代理") 
-                # 允许用户输入自定义代理
-                read -p "请输入自定义 GitHub 代理 URL (必须以斜杠 / 结尾): " custom_proxy
-                # 检查自定义代理是否以斜杠结尾
-                if [[ -n "$custom_proxy" && "$custom_proxy" != */ ]]; then
-                    custom_proxy="${custom_proxy}/" # 如果没有斜杠，自动添加
-                    warn "自定义代理 URL 没有以斜杠结尾，已自动添加斜杠"
-                fi
-                GITHUB_PROXY="$custom_proxy"
-                ok "已选择: 自定义代理 - $GITHUB_PROXY"
-                break
-                ;;
-            *) 
-                warn "无效输入，使用默认代理"
-                GITHUB_PROXY="https://ghfast.top/"
-                ok "已选择: ghfast.top 镜像 (默认)"
-                break
-                ;;
+        "ghfast.top 镜像 (推荐)")
+            GITHUB_PROXY="https://ghfast.top/"
+            ok "已选择: ghfast.top 镜像"
+            break
+            ;;
+        "ghproxy.net 镜像")
+            GITHUB_PROXY="https://ghproxy.net/"
+            ok "已选择: ghproxy.net 镜像"
+            break
+            ;;
+        "不使用代理")
+            GITHUB_PROXY=""
+            ok "已选择: 不使用代理"
+            break
+            ;;
+        "自定义代理")
+            read -rp "请输入自定义 GitHub 代理 URL (如 ghfast.top/ 或 https://ghfast.top/, 必须以斜杠 / 结尾): " custom_proxy
+
+            # 自动加 https://（如果没有写协议）
+            if [[ "$custom_proxy" != http*://* ]]; then
+                custom_proxy="https://$custom_proxy"
+                warn "代理 URL 没有写协议，已自动加 https://"
+            fi
+
+            # 自动添加结尾斜杠
+            if [[ "$custom_proxy" != */ ]]; then
+                custom_proxy="${custom_proxy}/"
+                warn "代理 URL 没有以斜杠结尾，已自动添加斜杠"
+            fi
+
+            GITHUB_PROXY="$custom_proxy"
+            ok "已选择: 自定义代理 - $GITHUB_PROXY"
+            break
+            ;;
+        *)
+            warn "无效输入，使用默认代理"
+            GITHUB_PROXY="https://ghfast.top/"
+            ok "已选择: ghfast.top 镜像 (默认)"
+            break
+            ;;
         esac
     done
-} #结束函数定义    
+}
+
 
 
 check_sudo() {
