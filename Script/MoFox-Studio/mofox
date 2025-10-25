@@ -130,7 +130,7 @@ stop_mofox() {
 
 attach_session() {
     local session=$1
-    local name=$2
+    local name=${2:-$1}
 
     if ! session_exists "$session"; then
         error "$name 未运行,无法附加"
