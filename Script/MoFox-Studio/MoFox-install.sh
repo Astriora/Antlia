@@ -446,7 +446,6 @@ install_python_dependencies() {
 }
 
 download_script() {
-    #local DOWNLOAD_URL="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/MoFox-Studio/mofox"
     local DOWNLOAD_URL="${GITHUB_PROXY}https://raw.githubusercontent.com/Astriora/Antlia/refs/heads/dev/Script/MoFox-Studio/mofox"
     local TARGET_DIR="$LOCAL_BIN/MoFox_Bot"
     local TARGET_FILE="$TARGET_DIR/mofox"
@@ -457,15 +456,16 @@ download_script() {
     chmod +x "$TARGET_FILE"
     ok "mofox 脚本已下载到 $TARGET_FILE"
 
+    # 软链到 /usr/local/bin 方便全局调用
     $SUDO ln -sf "$TARGET_FILE" /usr/local/bin/mofox
 
-    if [[ -f "$TARGET_FILE" ]]; then
-        "$TARGET_FILE" --init="$SCRIPT_DIR" || { err "初始化失败"; }
-        ok "mofox 已初始化到 $SCRIPT_DIR"
-    else
-        err "mofox 脚本下载失败，初始化中止"
-    fi
+    # 直接写 path.conf 到用户目录，不用初始化
+    echo "$LOCAL_BIN" > "$TARGET_DIR/path.conf"
+    ok "路径配置文件已写入: $TARGET_DIR/path.conf"
+
+    ok "mofox 已准备就绪"
 }
+
 
 show_text() {
     print_title "部署完成"
