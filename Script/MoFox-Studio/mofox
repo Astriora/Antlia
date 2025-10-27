@@ -1,0 +1,270 @@
+#!/bin/bash
+set -euo pipefail
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+
+# =============================================================================
+# 配置部分
+# =============================================================================
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PATH_CONFIG_FILE="$HOME/.local/bin/MoFox_Bot/path.conf"
+
+
+# 颜色定义
+RESET='\033[0m'
+BOLD='\033[1m'
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
+CYAN='\033[36m'
+MAGENTA='\033[35m'
+CURRENT_USER=$(whoami)
+
+# =============================================================================
+# 日志函数
+# =============================================================================
+info() { echo -e "${BLUE}[INFO]${RESET} $1"; }
+success() { echo -e "${GREEN}[SUCCESS]${RESET} $1"; }
+warn() { echo -e "${YELLOW}[WARN]${RESET} $1"; }
+error() { echo -e "${RED}[ERROR]${RESET} $1"; }
+
+print_line() {
+    echo -e "${CYAN}========================================================${RESET}"
+}
+
+print_title() {
+    echo ""
+    print_line
+    echo -e "${BOLD}${MAGENTA}$1${RESET}"
+    print_line
+}
+
+# =============================================================================
+# 路径初始化
+# =============================================================================
+init_paths() {
+    # 如果有 path.conf 文件,直接读取
+    if [ -f "$PATH_CONFIG_FILE" ]; then
+        DEPLOY_BASE=$(cat "$PATH_CONFIG_FILE" | tr -d '\n\r' | xargs)
+        info "从配置文件加载路径: $DEPLOY_BASE"
+    # 否则检测同级目录
+    elif [ -d "$SCRIPT_DIR/MoFox_Bot" ]; then
+        DEPLOY_BASE="$SCRIPT_DIR"
+        info "使用同级目录: $DEPLOY_BASE"
+    else
+        error "未找到 MoFox_Bot 目录,请使用 --init 参数配置路径"
+        echo "用法: $0 --init=/path/to/parent/dir"
+        exit 1
+    fi
+
+    DEPLOY_DIR="$DEPLOY_BASE/MoFox_Bot"
+}
+
+# =============================================================================
+# 工具函数
+# =============================================================================
+session_exists() {
+    screen -ls | grep -q "\.$1[[:space:]]"
+    return $?
+}
+
+check_service_status() {
+    local service=$1
+    if session_exists "$service"; then
+        echo -e "${GREEN}[运行中]${RESET}"
+        return 0
+    else
+        echo -e "${RED}[已停止]${RESET}"
+        return 1
+    fi
+}
+
+press_any_key() {
+    echo ""
+    read -n 1 -s -r -p "按任意键继续..."
+    echo ""
+}
+
+# =============================================================================
+# 函数
+# =============================================================================
+start_mofox() {
+    info "正在启动 MoFox_Bot..."
+
+    if session_exists "MoFox_Bot"; then
+        warn "MoFox_Bot 已在运行中"
+        return 1
+    fi
+    screen -dmS MoFox_Bot bash -c "cd \"$DEPLOY_DIR\" && uv run bot.py"
+
+    sleep 2
+
+    if session_exists "MoFox_Bot"; then
+        success "MoFox_Bot 启动成功"
+        return 0
+    else
+        error "MoFox_Bot 启动失败,请检查日志"
+        return 1
+    fi
+}
+
+stop_mofox() {
+    info "正在停止 MoFox_Bot..."
+
+    if ! session_exists "MoFox_Bot"; then
+        warn "MoFox_Bot 未运行"
+        return 1
+    fi
+
+    screen -S MoFox_Bot -X quit
+    sleep 1
+
+    if ! session_exists "MoFox_Bot"; then
+        success "MoFox_Bot 已停止"
+        return 0
+    else
+        error "MoFox_Bot 停止失败"
+        return 1
+    fi
+}
+
+attach_session() {
+    local session=$1
+    local name=${2:-$1}
+
+    if ! session_exists "$session"; then
+        error "$name 未运行,无法附加"
+        press_any_key
+        return 1
+    fi
+
+    info "正在附加到 $name 会话..."
+    info "使用 Ctrl+A 然后按 D 来分离会话"
+    sleep 2
+    screen -r "$session"
+}
+
+# =============================================================================
+# 菜单显示
+# =============================================================================
+show_menu() {
+    clear
+    print_title "MoFox_Bot  2025.10.25"
+
+    echo -e "${CYAN}系统信息:${RESET}"
+    echo -e "  用户: ${GREEN}$CURRENT_USER${RESET}"
+    echo -e "  时间: ${GREEN}$(date '+%Y-%m-%d %H:%M:%S')${RESET}"
+    echo -e "  路径: ${GREEN}$DEPLOY_BASE${RESET}"
+    echo ""
+
+    echo -e "${CYAN}服务状态:${RESET}"
+    echo -e "  MaiBot:                 $(check_service_status 'MoFox_Bot')"
+    echo ""
+
+    print_line
+    echo -e "${BOLD}${YELLOW}操作菜单:${RESET}"
+    print_line
+
+    echo -e "  ${BOLD}${GREEN}[1]${RESET} 启动 MoFox_Bot"
+    echo -e "  ${BOLD}${GREEN}[2]${RESET} 停止 MoFox_Bot"
+    echo -e "  ${BOLD}${GREEN}[3]${RESET} 附加 MoFox_Bot 会话"
+    echo -e ""
+    echo -e "  ${BOLD}${GREEN}[4]${RESET} 前台启动 MoFox_Bot "
+    echo -e "  ${BOLD}${GREEN}[5]${RESET} 更新 MoFox_Bot"
+    echo ""
+    echo -e "  ${BOLD}${GREEN}[0]${RESET} 退出脚本"
+
+    print_line
+    echo ""
+    echo -ne "${BOLD}${YELLOW}请选择操作 [0-8]: ${RESET}"
+}
+
+# =============================================================================
+# 主程序
+# =============================================================================
+main() {
+    # 处理 --init 参数
+    if [[ $1 == --init=* ]]; then
+        local init_path="${1#*=}"
+
+        # 验证路径
+        if [ ! -d "$init_path/MoFox_Bot" ]; then
+            error "未找到 MoFox_Bot 目录: $init_path/MoFox_Bot"
+            exit 1
+        fi
+
+      # 写入配置文件
+        echo "$init_path" >"$PATH_CONFIG_FILE"
+        success "路径配置成功: $init_path"
+        success "配置文件: $PATH_CONFIG_FILE"
+        exit 0
+    fi
+
+
+    # 初始化路径
+    init_paths
+
+    # 主循环
+    while true; do
+        show_menu
+        read -r choice
+
+        case $choice in
+        1) start_mofox ;;
+        2) stop_mofox ;;
+        3) attach_session "MoFox_Bot" && press_any_key ;;
+        4)
+            print_title "前台启动 MoFox_Bot"
+            # 如果已运行先停止
+            if session_exists "MoFox_Bot"; then
+                stop_mofox
+            fi
+            cd "$DEPLOY_DIR" || {
+                error "无法进入目录 $DEPLOY_DIR"
+                press_any_key
+                continue
+            }
+            echo -e "${GREEN}前台启动 MaiBot,使用 Ctrl+C 停止${RESET}"
+            uv run bot.py
+            press_any_key
+            ;;
+
+        5)
+            print_title "更新 MoFox_Bot"
+            cd "$DEPLOY_DIR" || {
+                error "无法进入目录 $DEPLOY_DIR"
+                press_any_key
+                continue
+            }
+
+            if ! git pull --ff-only; then
+                error "Git 更新失败"
+                press_any_key
+                continue
+            fi
+
+            if ! uv sync --upgrade \
+                --index https://mirrors.huaweicloud.com/repository/pypi/simple/ \
+                --index https://pypi.org/simple/; then
+                error "依赖更新失败"
+                press_any_key
+                continue
+            fi
+
+            press_any_key
+            ;;
+        114514) echo "兄弟兄弟能不能给我的项目点一个star https://github.com/Astriora/Antlia 我可以给你发腿照" && press_any_key ;;
+        0)
+            exit 0
+            ;;
+        *)
+            error "无效选项,请重新选择"
+            sleep 2
+            ;;
+        esac
+    done
+}
+
+# 运行主程序
+main "${1:-}"
+
