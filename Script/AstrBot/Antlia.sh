@@ -168,7 +168,7 @@ install_system_dependencies() {
 
 
 generate_start_script() {
-	local start_script_url="${GITHUB_PROXY}https://raw.githubusercontent.com/Astriora/Antlia/refs/heads/main/Script/AstrBot/start.sh"
+	local start_script_url="${GITHUB_PROXY}https://raw.githubusercontent.com/Astriora/Antlia/refs/heads/dev/Script/AstrBot/start.sh"
 	#下载启动脚本
 	cd "$DEPLOY_DIR" || err "无法进入部署目录"
 	download_with_retry "$start_script_url" "astrbot.sh"
