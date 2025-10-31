@@ -183,6 +183,7 @@ generate_start_script() {
 main() { 
 	# 调用检查函数
 	check_download_tool
+	select_github_proxy         #选择 GitHub 代理
     download_and_source_utils
 	
 	astrbot_art
@@ -191,7 +192,7 @@ main() {
 	info "脚本版本: 2025/10.31" #打印版本信息
 
 	# 执行部署步骤
-	select_github_proxy         #选择 GitHub 代理
+	
 	detect_system               #检测系统
 	install_system_dependencies #安装系统依赖
 	# 安装uv
