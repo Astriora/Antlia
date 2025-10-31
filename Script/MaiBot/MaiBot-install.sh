@@ -366,15 +366,13 @@ install_uv_environment() {
         info "安装 uv..."
         bash <(curl -sSL "${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/UV/uv_install.sh") --GITHUB-URL "$GITHUB_PROXY"
     fi
-    set +u
-    [[ -f ~/.bashrc ]] && source ~/.bashrc
-    set -u
+
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 }
 
 clone_maibot() {
-            local CLONE_URL="${GITHUB_PROXY}https://github.com/MaiM-with-u/MaiBot.git" # 选择官方源
-            local CLONE_URL1="${GITHUB_PROXY}https://github.com/MaiM-with-u/MaiBot-Napcat-Adapter.git"
+            local CLONE_URL="${GITHUB_PROXY}https://github.com/Mai-with-u/MaiBot.git" # 选择官方源
+            local CLONE_URL1="${GITHUB_PROXY}https://github.com/Mai-with-u/MaiBot-Napcat-Adapter.git"
 
     if [ -d "$DEPLOY_DIR/MaiBot" ]; then # 如果目录已存在
         warn "检测到MaiBot 文件夹已存在。是否删除重新克隆？(y/n)" # 提示用户是否删除
