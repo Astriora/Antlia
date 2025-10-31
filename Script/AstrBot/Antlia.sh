@@ -23,7 +23,7 @@ check_download_tool() {
     fi
 }
 download_and_source_utils() {
-    local utils_url="${GITHUB_PROXY}https://raw.githubusercontent.com/Astriora/Antlia/refs/heads/main/utils.sh"
+    local utils_url="${GITHUB_PROXY}https://raw.githubusercontent.com/Astriora/Antlia/refs/heads/dev/utils.sh"
     local utils_file="/tmp/utils.sh"
 
     echo "检查下载工具..."
