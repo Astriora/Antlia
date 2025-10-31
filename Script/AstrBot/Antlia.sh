@@ -183,11 +183,11 @@ generate_start_script() {
 main() { 
 	# 调用检查函数
 	check_download_tool
-
-	check_root_or_sudo
+    download_and_source_utils
+	
 	astrbot_art
 	print_title "AstrBot 部署脚本" #打印标题
-
+    check_root_or_sudo
 	info "脚本版本: 2025/10.31" #打印版本信息
 
 	# 执行部署步骤
