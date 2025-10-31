@@ -1,6 +1,6 @@
 #!/bin/bash
 # utils 2525.10.25
-set -euo pipefail
+#set -euo pipefail
 
 get_script_dir() {
     local source="${BASH_SOURCE[0]}"
