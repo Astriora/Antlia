@@ -1,6 +1,7 @@
 #!/bin/bash
 # utils 2525.10.25
 #set -euo pipefail
+SUDO=$( [[ $EUID -eq 0 ]] && echo "" || echo "sudo" )
 
 get_script_dir() {
     local source="${BASH_SOURCE[0]}"
