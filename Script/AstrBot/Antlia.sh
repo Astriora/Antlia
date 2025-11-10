@@ -69,7 +69,14 @@ get_script_dir() {
 
 SCRIPT_DIR="$(get_script_dir)"
 DEPLOY_DIR="${DEPLOY_DIR:-$SCRIPT_DIR}"
-SUDO=$([[ $EUID -eq 0 || ! command -v sudo >/dev/null 2>&1 ]] && echo "" || echo "sudo")
+if [[ $EUID -eq 0 ]]; then
+    SUDO=""
+elif ! command -v sudo >/dev/null 2>&1; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
+
 RESET='\033[0m'
 BOLD='\033[1m'
 RED='\033[31m'
