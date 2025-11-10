@@ -69,7 +69,7 @@ get_script_dir() {
 
 SCRIPT_DIR="$(get_script_dir)"
 DEPLOY_DIR="${DEPLOY_DIR:-$SCRIPT_DIR}"
-SUDO=$([[ $EUID -eq 0 || ! $(command -v sudo) ]] && echo "" || echo "sudo")
+SUDO=$([[ $EUID -eq 0 || ! command -v sudo >/dev/null ]] && echo "" || echo "sudo")
 RESET='\033[0m'
 BOLD='\033[1m'
 RED='\033[31m'
@@ -272,8 +272,8 @@ install_package() {
 		$SUDO pacman -Sy --noconfirm "$package"
 		;;
 	apt)
-		$SUDO apt update -qq || true
-		$SUDO apt install -y "$package"
+		$SUDO apt-get update -qq || true
+		$SUDO apt-get install -y "$package"
 		;;
 	dnf)
 		$SUDO dnf install -y "$package"
