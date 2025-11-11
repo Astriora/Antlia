@@ -272,8 +272,8 @@ install_package() {
 		$SUDO pacman -Sy --noconfirm "$package"
 		;;
 	apt)
-		$SUDO apt update -qq || true
-		$SUDO apt install -y "$package"
+		$SUDO apt-get update -qq || true
+		$SUDO apt-get install -y "$package"
 		;;
 	dnf)
 		$SUDO dnf install -y "$package"
