@@ -1,311 +1,291 @@
 #!/bin/bash
+# MaiBot Shell 部署脚本
+# 版本: 2025/11/11
 
-# 获取脚本绝对路径
 set -euo pipefail
+
+DEPLOY_DIR=""
+FORCE_CLONE=0
+GITHUB_PROXY=""
+CI_MODE=0
+LOCAL_BIN="$HOME/.local/bin"
+TARGET_PATH="$LOCAL_BIN/maibot"
+print_help() {
+	cat <<EOF
+MaiBot Shell 部署脚本
+
+用法: bash $0 [选项]
+
+选项:
+  --ci                启用 CI 模式，日志默认显示
+  --GITHUB-URL <url>  自定义 GitHub 代理/镜像 URL
+  --force             强制克隆项目，即使目录存在也覆盖
+  --path <dir>        自定义部署路径，默认使用脚本所在目录
+  -h, --help          显示本帮助信息
+
+示例:
+  bash $0 --force --path /home/zhende1113/ --GITHUB-URL https://ghproxy.net/
+EOF
+}
+# 参数解析
+while [[ $# -gt 0 ]]; do
+	case $1 in
+	--ci | -ci)
+		CI_MODE=1
+		FORCE_CLONE=1 # CI 默认强制覆盖
+		shift
+		;;
+	--GITHUB-URL)
+		GITHUB_PROXY="$2"
+		shift 2
+		;;
+	--force)
+		FORCE_CLONE=1
+		shift
+		;;
+	--path)
+		DEPLOY_DIR="$2"
+		shift 2
+		;;
+	-h | --help)
+		print_help
+		exit 0
+		;;
+	*)
+		echo "未知参数: $1"
+		print_help
+		exit 1
+		;;
+	esac
+done
+
 get_script_dir() {
 	local source="${BASH_SOURCE[0]}"
-
-	# 检查是否来自进程替换（如 bash <(curl ...)）
 	if [[ "$source" == /dev/fd/* ]] || [[ ! -f "$source" ]]; then
-		# 无法定位真实脚本文件，使用当前工作目录
 		pwd
 	else
-		# 正常情况：解析脚本真实路径
 		(cd "$(dirname "$source")" && pwd)
 	fi
 }
 
 SCRIPT_DIR="$(get_script_dir)"
-DEPLOY_DIR="$SCRIPT_DIR"
-LOG_FILE="$SCRIPT_DIR/script.log" #  日志文件路径
-DEPLOY_STATUS_FILE="$SCRIPT_DIR/MaiBot/deploy.status" # 部署状态文件
-LOCAL_BIN="$HOME/.local/bin" 
-MAIBOT_BIN="$LOCAL_BIN/maibot"
-
-echo "SCRIPT_DIR: $SCRIPT_DIR"
-echo "DEPLOY_DIR: $DEPLOY_DIR"
-
-# 检查是否为异常目录（如 /dev/fd、/proc/self/fd 等）
+DEPLOY_DIR="${DEPLOY_DIR:-$SCRIPT_DIR}"
+SUDO=$([[ $EUID -eq 0 || ! $(command -v sudo) ]] && echo "" || echo "sudo")
+RESET='\033[0m'
+BOLD='\033[1m'
+RED='\033[31m'
+GREEN='\033[32m'
+YELLOW='\033[33m'
+BLUE='\033[34m'
+CYAN='\033[36m'
+LOG_FILE="$SCRIPT_DIR/maibot_install_log_$(date '+%Y%m%d_%H%M%S').log"
+exec > >(tee -a "$LOG_FILE") 2>&1
+# 检查目录异常
 if [[ "$DEPLOY_DIR" == /dev/fd/* ]] || [[ "$DEPLOY_DIR" == /proc/self/fd/* ]] || [[ ! -d "$DEPLOY_DIR" ]]; then
-	echo -e "\e[31m警告：检测到部署目录异常！可能因使用 'bash <(curl ...)' 导致路径错误。\e[0m"
-	echo -e "\e[33m建议：将脚本下载到本地后运行，或确保当前目录可写。\e[0m"
+	echo -e "\e[31m警告：部署目录异常，建议下载到本地再运行\e[0m"
 else
-	echo -e "\e[32m目录正常，可安全部署。\e[0m"
+	echo -e "\e[32m目录正常，可安全部署\e[0m"
 fi
-# 检查命令是否存在
-command_exists() {
-    command -v "$1" >/dev/null 2>&1 # 检查命令是否存在
+
+main() {
+    print_title "MaiBot 部署脚本"
+    detect_system
+    detect_package_manager
+    select_github_proxy
+    install_system_dependencies
+    install_uv_environment
+    clone_maibot
+    install_python_dependencies
+    update_shell_config
+    download-script
+    ok "MaiBot 部署完成！ 执行: 
+    source  ~/.bashrc
+    maibot
+    来启动"
 }
 
-# =============================================================================
 # 日志函数
-# =============================================================================
-# 定义颜色
-RESET='\033[0m'     # 重置颜色
-BOLD='\033[1m'      # 加粗
-RED='\033[31m'      # 红色
-GREEN='\033[32m'    # 绿色
-YELLOW='\033[33m'   # 黄色
-BLUE='\033[34m'     # 蓝色
-CYAN='\033[36m'     # 青色
-
-# 信息日志
 info() { echo -e "${BLUE}[INFO]${RESET} $1"; }
-
-# 成功日志
 ok() { echo -e "${GREEN}[OK]${RESET} $1"; }
-
-# 警告日志
 warn() { echo -e "${YELLOW}[WARN]${RESET} $1"; }
+err() {
+	echo -e "${RED}[ERROR]${RESET} $1"
+	exit 1
+}
+print_title() { echo -e "${BOLD}${CYAN}--- $1 ---${RESET}"; }
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
 
-# 错误日志
-err() { echo -e "${RED}[ERROR]${RESET} $1"; exit 1; }
-
-# 打印标题
-print_title() { echo -e "${BOLD}${CYAN}=== $1 ===${RESET}"; }
-
-download_with_retry() {                                   #定义函数
-    local url="$1"                                        #获取参数
-    local output="$2"                                     #获取参数
-    local max_attempts=3                                  #最大尝试次数
-    local attempt=1                                       #当前尝试次数
-
-    while [[ $attempt -le $max_attempts ]]; do            #循环直到达到最大尝试次数
-        info "下载尝试 $attempt/$max_attempts: $url"       #打印信息日志
-        if command_exists wget; then                      #如果 wget 存在
-            if wget -O "$output" "$url" 2>/dev/null; then #使用 wget 下载
-                ok "下载成功: $output"                     #打印日志
-                return 0                                  #成功返回
-            fi                                            #结束条件判断
-        elif command_exists curl; then                    #如果 curl 存在
-            if curl -L -o "$output" "$url" 2>/dev/null; then #使用 curl 下载
-                ok "下载成功: $output"                         #打印日志
-                return 0                                      #成功返回
-            fi                                                #结束条件判断
-        fi                                                    #结束条件判断
-        warn "第 $attempt 次下载失败"                           #打印警告日志
-        if [[ $attempt -lt $max_attempts ]]; then             #如果还没到最大尝试次数
-            info "5秒后重试..."                                #打印信息日志
-            sleep 5                                           #等待 5 秒
-        fi                                                    #结束条件判断
-        ((attempt++))                                         #增加尝试次数
-    done                                                      #结束循环
-    err "所有下载尝试都失败了"                                   #打印错误日志并退出
-}                                                             #结束函数定义
+# 带重试的下载函数
+download_with_retry() {
+    local url="$1"
+    local output="$2"
+    local max_attempts=3
+    local attempt=1
+    
+    while [ $attempt -le $max_attempts ]; do
+        info "下载文件 (尝试 $attempt/$max_attempts): $url"
+        
+        if curl -L -o "$output" "$url" 2>/dev/null; then
+            ok "下载成功: $output"
+            return 0
+        elif wget -q -O "$output" "$url" 2>/dev/null; then
+            ok "下载成功: $output"
+            return 0
+        else
+            warn "下载失败，尝试 $attempt/$max_attempts"
+            if [ $attempt -lt $max_attempts ]; then
+                sleep 5
+            fi
+        fi
+        
+        attempt=$((attempt + 1))
+    done
+    
+    err "下载失败: $url"
+}
 
 select_github_proxy() {
-    print_title "选择 GitHub 代理"
-    echo "请根据您的网络环境选择一个合适的下载代理："
-    echo
-
-    select proxy_choice in "ghfast.top 镜像 (推荐)" "ghproxy.net 镜像" "不使用代理" "自定义代理"; do
-        case $proxy_choice in
-        "ghfast.top 镜像 (推荐)")
-            GITHUB_PROXY="https://ghfast.top/"
-            ok "已选择: ghfast.top 镜像"
-            break
-            ;;
-        "ghproxy.net 镜像")
-            GITHUB_PROXY="https://ghproxy.net/"
-            ok "已选择: ghproxy.net 镜像"
-            break
-            ;;
-        "不使用代理")
-            GITHUB_PROXY=""
-            ok "已选择: 不使用代理"
-            break
-            ;;
-        "自定义代理")
-            read -rp "请输入自定义 GitHub 代理 URL (如 ghfast.top/ 或 https://ghfast.top/, 必须以斜杠 / 结尾): " custom_proxy
-
-            # 自动加 https://（如果没有写协议）
-            if [[ "$custom_proxy" != http*://* ]]; then
-                custom_proxy="https://$custom_proxy"
-                warn "代理 URL 没有写协议，已自动加 https://"
-            fi
-
-            # 自动添加结尾斜杠
-            if [[ "$custom_proxy" != */ ]]; then
-                custom_proxy="${custom_proxy}/"
-                warn "代理 URL 没有以斜杠结尾，已自动添加斜杠"
-            fi
-
-            GITHUB_PROXY="$custom_proxy"
-            ok "已选择: 自定义代理 - $GITHUB_PROXY"
-            break
-            ;;
-        *)
-            warn "无效输入，使用默认代理"
-            GITHUB_PROXY="https://ghfast.top/"
-            ok "已选择: ghfast.top 镜像 (默认)"
-            break
-            ;;
-        esac
-    done
+	if [[ $CI_MODE -eq 1 ]]; then
+		return 0 # CI 模式不弹选择
+	fi
+	print_title "选择 GitHub 代理"
+	select proxy_choice in "ghfast.top (推荐)" "ghproxy.net" "不使用代理" "自定义"; do
+		case $proxy_choice in
+		"ghfast.top (推荐)")
+			GITHUB_PROXY="https://ghfast.top/"
+			break
+			;;
+		"ghproxy.net")
+			GITHUB_PROXY="https://ghproxy.net/"
+			break
+			;;
+		"不使用代理")
+			GITHUB_PROXY=""
+			break
+			;;
+		"自定义")
+			read -rp "输入自定义代理 URL: " custom_proxy
+			# 确保URL格式正确
+			[[ "$custom_proxy" != http*://* ]] && custom_proxy="https://$custom_proxy"
+			[[ "$custom_proxy" != */ ]] && custom_proxy="${custom_proxy}/"
+			GITHUB_PROXY="$custom_proxy"
+			break
+			;;
+		*)
+			warn "无效输入，使用默认"
+			GITHUB_PROXY="https://ghfast.top/"
+			break
+			;;
+		esac
+	done
+	ok "已选择代理: $GITHUB_PROXY"
 }
 
+# 检测包管理器
+detect_package_manager() {
+	info "检测包管理器..."
+	local managers=(
+		"pacman:Arch Linux"
+		"apt:Debian/Ubuntu"
+		"dnf:Fedora/RHEL/CentOS"
+		"yum:RHEL/CentOS"
+		"zypper:openSUSE"
+		"apk:Alpine Linux"
+		"brew:macOS/Linux"
+	)
 
-
-check_sudo() {
-    if [[ $EUID -eq 0 ]]; then
-        # 已经是root，不需要sudo
-        SUDO=""
-        ok "当前是 root 用户"
-    elif command_exists sudo; then
-        # 有sudo命令
-        SUDO="sudo"
-        ok "检测到 sudo 命令"
-    else
-        # 没有sudo
-        SUDO=""
-        warn "系统没有 sudo "
-    fi
+	for m in "${managers[@]}"; do
+		local name="${m%%:*}"
+		local distro="${m##*:}"
+		if command_exists "$name"; then
+			PKG_MANAGER="$name"
+			DISTRO="$distro"
+			ok "检测到: $PKG_MANAGER ($DISTRO)"
+			return
+		fi
+	done
+	err "未检测到支持的包管理器"
 }
 
-
-# =============================================================================
 # 系统检测
-# =============================================================================
-detect_system() {                               #定义函数
-    print_title "检测系统环境"                     #打印标题
-    ID="${ID:-}"
-    # 检测架构
-    ARCH=$(uname -m)                          #获取系统架构
-    case $ARCH in # 根据架构打印信息
-        x86_64|aarch64|arm64) 
-            ok "系统架构: $ARCH (支持)"  #打印信息
-            ;;
-        *) 
-            warn "架构 $ARCH 可能不被完全支持，继续尝试..."  #打印警告
-            ;;
-    esac
-    
-    # 检测操作系统
-    if [[ -f /etc/os-release ]]; then  #如果文件存在
-        source /etc/os-release #加载文件
-        ok "检测到系统: $NAME" #打印信息
-    else  # 否则
-        warn "无法检测具体系统版本" #打印警告 
-    fi   #结束条件判断
-    
-    # 检测包管理器
-    check_sudo
-    detect_package_manager
-}                           #结束函数定义
+detect_system() {
+	print_title "检测系统环境"
+	ARCH=$(uname -m)
+	if [[ $ARCH =~ ^(x86_64|aarch64|arm64)$ ]]; then
+		ok "架构: $ARCH"
+	else
+		warn "架构 $ARCH 可能不被完全支持"
+	fi
 
+	if [[ -f /etc/os-release ]]; then
+		source /etc/os-release
+		ok "系统: $NAME"
+	else
+		warn "无法检测具体系统"
+	fi
+}
 
-# =============================================================================
-# 包管理器检测
-# =============================================================================
-detect_package_manager() {                          #定义函数
-    info "检测包管理器..."                     #打印信息日志
-    
-    local managers=(                   #定义包管理器数组
-        "apt:Debian/Ubuntu"    
-        "pacman:Arch Linux"
-        "dnf:Fedora/RHEL/CentOS"
-        "yum:RHEL/CentOS (老版本)"
-        "zypper:openSUSE"
-        "apk:Alpine Linux"
-        "brew:macOS/Linux (Homebrew)"
-    ) #结束数组定义
-    
-    for manager_info in "${managers[@]}"; do  #循环遍历数组
-        local manager="${manager_info%%:*}"  #提取包管理器名称
-        local distro="${manager_info##*:}"   #提取发行版名称
-        
-        if command_exists "$manager"; then   #如果包管理器存在
-            PKG_MANAGER="$manager"           #设置全局变量
-            DISTRO="$distro"                 #设置全局变量
-            ok "检测到包管理器: $PKG_MANAGER ($DISTRO)" #打印信息日志
-            return 0                          #成功返回
-        fi                                    #结束条件判断
-    done                                   #结束循环
-    
-    err "未检测到支持的包管理器，请手动安装 git、curl/wget 和 python3" #打印错误日志并退出
-}                                          #结束函数定义
+# 通用包安装函数
+install_package() {
+	local package="$1"
+	info "安装 $package..."
+	case $PKG_MANAGER in
+	pacman)
+		$SUDO pacman -Sy --noconfirm "$package"
+		;;
+	apt)
+		$SUDO apt update -qq || true
+		$SUDO apt install -y "$package"
+		;;
+	dnf)
+		$SUDO dnf install -y "$package"
+		;;
+	yum)
+		$SUDO yum install -y "$package"
+		;;
+	zypper)
+		$SUDO zypper install -y "$package"
+		;;
+	apk)
+		$SUDO apk add gcc musl-dev linux-headers "$package"
+		;;
+	brew)
+		$SUDO brew install "$package"
+		;;
+	*)
+		warn "未知包管理器，请手动安装 $package"
+		;;
+	esac
+}
 
-install_package() { #定义函数
-    local package="$1"                           #获取参数
+#系统依赖安装
+install_system_dependencies() { 
+    print_title "安装系统依赖"
     
-    info "安装 $package..."                  #打印信息日志
-    case $PKG_MANAGER in                   #根据包管理器选择安装命令
-        pacman)
-            $SUDO pacman -S --noconfirm "$package" #安装包
-            ;;
-        apt)
-            $SUDO apt update -qq 2>/dev/null || true #更新包列表
-            $SUDO apt install -y "$package"          #安装包
-            ;;
-        dnf)
-            # 如果是安装 screen，先确保 EPEL 已启用
-            if [[ "$package" == "screen" ]]; then
-                if ! dnf repolist enabled | grep -q epel; then
-                    info "启用 EPEL 仓库以安装 screen..."
-                    $SUDO dnf install -y epel-release 2>/dev/null || true
-                fi
-            fi
-            $SUDO dnf install -y "$package"   #安装包
-            ;;
-        yum)
-            # 如果是安装 screen，先确保 EPEL 已启用
-            if [[ "$package" == "screen" ]]; then
-                if ! yum repolist enabled | grep -q epel; then
-                    info "启用 EPEL 仓库以安装 screen..."
-                    $SUDO yum install -y epel-release 2>/dev/null || true
-                fi
-            fi
-            $SUDO yum install -y "$package"  #安装包
-            ;;
-        zypper)
-            $SUDO zypper install -y "$package" #安装包
-            ;;
-        apk)
-            $SUDO apk add gcc musl-dev linux-headers "$package" #安装包
-            ;;
-        brew)
-            $SUDO install "$package" #安装包
-            ;;
-        *)
-            warn "未知包管理器 $PKG_MANAGER，请手动安装 $package" #打印警告
-            ;;
-    esac #结束条件判断
-} #结束函数定义
-
-#------------------------------------------------------------------------------
-
-
-# =============================================================================
-# 系统依赖安装
-# =============================================================================
-install_system_dependencies() {   #定义函数
-    print_title "安装系统依赖"  #打印标题
+    local packages=("git" "python3" "screen" "tar" "findutils" "zip")
     
-    local packages=("git" "python3" "screen" "tar" "findutils" "zip")  #定义必需包数组
+    if ! command_exists curl && ! command_exists wget; then
+        packages+=("curl")
+    fi
     
-    # 检查下载工具
-    if ! command_exists curl && ! command_exists wget; then  #如果 curl 和 wget 都不存在
-        packages+=("curl")   #添加 curl 到数组
-    fi                                  #结束条件判断
-    
-    # Arch 系统特殊处理：添加 uv 到必需包数组
     if [[ "$ID" == "arch" ]]; then
-        # 只有 Arch 才用包管理器安装 uv
         packages+=("uv")
-        info "已将 uv 添加到 Arch 的必需安装包列表"
     fi
-        if ! command_exists pip3 && ! command_exists pip; then   #如果 pip3 和 pip 都不存在
-        case $PKG_MANAGER in                                 #根据包管理器选择 pip 包名称
-            apt) packages+=("python3-pip") ;;                # apt
-            pacman) packages+=("python-pip") ;;              # pacman
-            dnf|yum) packages+=("python3-pip") ;;            # dnf 和 yum
-            zypper) packages+=("python3-pip") ;;             # zypper
-            apk) packages+=("py3-pip") ;;                    # apk
-            brew) packages+=("pip3") ;;                      # brew
-            *) packages+=("python3-pip") ;;                  #默认
-        esac                                                 #结束条件判断
+    
+    if ! command_exists pip3 && ! command_exists pip; then
+        case $PKG_MANAGER in
+            apt) packages+=("python3-pip") ;;
+            pacman) packages+=("python-pip") ;;
+            dnf|yum) packages+=("python3-pip") ;;
+            zypper) packages+=("python3-pip") ;;
+            apk) packages+=("py3-pip") ;;
+            brew) packages+=("pip3") ;;
+            *) packages+=("python3-pip") ;;
+        esac
     fi
-    # 检查 Python 开发包
+    
     if ! command_exists python3-config; then
         case $PKG_MANAGER in
             apt) packages+=("python3-dev") ;;
@@ -317,45 +297,30 @@ install_system_dependencies() {   #定义函数
             *) packages+=("python3-dev") ;;
         esac
     fi
-    # 检查 gcc/g++ 是否存在，如果都不存在则安装
+    
     if ! command_exists gcc || ! command_exists g++; then
-     case $PKG_MANAGER in
-        apt)
-            packages+=("build-essential")      # 包含 gcc g++ make 等
-            ;;
-        pacman)
-            packages+=("base-devel")           # Arch 基础开发包，包含 gcc g++
-            ;;
-        dnf|yum)
-            packages+=("gcc" "gcc-c++" "make")
-            ;;
-        zypper)
-            packages+=("gcc" "gcc-c++" "make")
-            ;;
-        apk)
-            packages+=("build-base")           # Alpine 包含 gcc g++ make
-            ;;
-        brew)
-            packages+=("gcc")
-            ;;
-        *)
-            echo "未知包管理器，请手动安装 gcc/g++"
-            ;;
-      esac
+        case $PKG_MANAGER in
+            apt) packages+=("build-essential") ;;
+            pacman) packages+=("base-devel") ;;
+            dnf|yum) packages+=("gcc" "gcc-c++" "make") ;;
+            zypper) packages+=("gcc" "gcc-c++" "make") ;;
+            apk) packages+=("build-base") ;;
+            brew) packages+=("gcc") ;;
+            *) echo "未知包管理器，请手动安装 gcc/g++" ;;
+        esac
     fi
 
-
-    info "安装必需的系统包..."                                 #打印信息日志
-    for package in "${packages[@]}"; do                     #循环遍历包数组
-        if command_exists "${package/python3-pip/pip3}"; then #如果包已安装
-            ok "$package 已安装"                               #打印信息日志
-        else                                                  #否则
-            install_package "$package"                        #安装包
-        fi                                                    #结束条件判断
-    done                                                      #结束循环
+    info "安装必需的系统包..."
+    for package in "${packages[@]}"; do
+        if command_exists "${package/python3-pip/pip3}"; then
+            ok "$package 已安装"
+        else
+            install_package "$package"
+        fi
+    done
     
-    ok "系统依赖安装完成"  #打印成功日志
-}                          #结束函数定义
+    ok "系统依赖安装完成"
+}
 
 install_uv_environment() {
     print_title "安装和配置 uv 环境"
@@ -370,121 +335,68 @@ install_uv_environment() {
     export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
 }
 
+# 克隆 MaiBot 仓库
 clone_maibot() {
-            local CLONE_URL="${GITHUB_PROXY}https://github.com/Mai-with-u/MaiBot.git" # 选择官方源
-            local CLONE_URL1="${GITHUB_PROXY}https://github.com/Mai-with-u/MaiBot-Napcat-Adapter.git"
-
-    if [ -d "$DEPLOY_DIR/MaiBot" ]; then # 如果目录已存在
-        warn "检测到MaiBot 文件夹已存在。是否删除重新克隆？(y/n)" # 提示用户是否删除
-        read -p "请输入选择 (y/n, 默认n): " del_choice # 询问用户是否删除
-        del_choice=${del_choice:-n} # 默认选择不删除
-        if [ "$del_choice" = "y" ] || [ "$del_choice" = "Y" ]; then # 如果用户选择删除
-            rm -rf "$DEPLOY_DIR/MaiBot" # 删除MaiBot目录
-            ok "已删除MaiBot 文件夹。" # 提示用户已删除
-        else # 如果用户选择不删除
-            warn "跳过MaiBot仓库克隆。" # 提示用户跳过克隆
-            return # 结束函数
-        fi # 结束删除选择
-    fi # 如果目录不存在则继续克隆
-    info "克隆 MaiBot 仓库" # 提示用户开始克隆
-    git clone --depth 1 "$CLONE_URL" # 克隆仓库
+    local base_url="${GITHUB_PROXY}https://github.com/Mai-with-u"
+    local repos=("MaiBot" "MaiBot-Napcat-Adapter")
     
-    if [ -d "$DEPLOY_DIR/MaiBot-Napcat-Adapter" ]; then # 如果目录已存在
-        warn "检测到MaiBot-Napcat-Adapter文件夹已存在。是否删除重新克隆？(y/n)" # 提示用户是否删除
-        read -p "请输入选择 (y/n, 默认n): " del_choice # 询问用户是否删除
-        del_choice=${del_choice:-n} # 默认选择不删除
-        if [ "$del_choice" = "y" ] || [ "$del_choice" = "Y" ]; then # 如果用户选择删除
-            rm -rf "$DEPLOY_DIR/MaiBot-Napcat-Adapter" # 删除目录
-            ok "已删除MaiBot-Napcat-Adapter文件夹。" # 提示用户已删除
-        else # 如果用户选择不删除
-            warn "跳过MaiBot-Napcat-Adapter仓库克隆。" # 提示用户跳过克隆
-            return # 结束函数
-        fi # 结束删除选择
-    fi # 如果目录不存在则继续克隆
-     git clone --depth 1 "$CLONE_URL1" # 克隆仓库
-}  # 克隆 仓库结束
+    for repo in "${repos[@]}"; do
+        local clone_url="${base_url}/${repo}.git"
+        local deploy_path="$DEPLOY_DIR/$repo"
+        
+        if [ -d "$deploy_path" ]; then
+            if [[ $CI_MODE -eq 1 || $FORCE_CLONE -eq 1 ]]; then
+                rm -rf "$deploy_path"
+                ok "已删除$repo文件夹。"
+            else
+                read -p "检测到$repo文件夹已存在，删除重新克隆？(y/n, 默认n): " choice
+                choice=${choice:-n}
+                if [[ "$choice" != "y" && "$choice" != "Y" ]]; then
+                    warn "跳过$repo仓库克隆。"
+                    continue
+                fi
+                rm -rf "$deploy_path"
+            fi
+        fi
+        
+        info "克隆 $repo 仓库"
+        git clone --depth 1 "$clone_url" "$deploy_path"
+    done
+}
 
-# 安装 Python 依赖
+#安装 Python 依赖
 install_python_dependencies() {
     print_title "安装 Python 依赖"
-
     
-    # 配置 uv 镜像源
     export UV_INDEX_URL="https://mirrors.ustc.edu.cn/pypi/simple/"
-    mkdir -p ~/.cache/uv
-    chown -R "$(whoami):$(whoami)" ~/.cache/uv
+    mkdir -p ~/.cache/uv && chown -R "$(whoami):$(whoami)" ~/.cache/uv
 
-    # 安装 MaiBot 依赖
+    # MaiBot 安装
     cd "$DEPLOY_DIR/MaiBot" || err "无法进入 MaiBot 目录"
-    info "安装 MaiBot 依赖..."
-    
-    attempt=1
-    while [[ $attempt -le 3 ]]; do
-        if uv sync --index-url "$UV_INDEX_URL"; then
-            ok "uv sync 成功"
-            break
-        else
-            warn "uv sync 失败,重试 $attempt/3"
-            ((attempt++))
-            sleep 5
-        fi
+    for i in 1 2 3; do
+        uv sync --index-url "$UV_INDEX_URL" && break || warn "uv sync 失败,重试 $i/3" && sleep 5
     done
+    [[ $? -ne 0 ]] && err "uv sync 失败"
     
-    if [[ $attempt -gt 3 ]]; then
-        err "uv sync 多次失败"
-    fi
-
-    # 配置 MaiBot
-    info "配置 MaiBot..."
     mkdir -p config
-    ok "已创建 config 文件夹"
-    
-    # 复制配置文件
-    if [[ -f "template/bot_config_template.toml" ]]; then
-        cp "template/bot_config_template.toml" "config/bot_config.toml"
-        ok "已复制 bot_config.toml"
-    else
-        warn "未找到 template/bot_config_template.toml"
-    fi
-    
-    if [[ -f "template/model_config_template.toml" ]]; then
-        cp "template/model_config_template.toml" "config/model_config.toml"
-        ok "已复制 model_config.toml"
-    else
-        warn "未找到 template/model_config_template.toml"
-    fi
-    
-    if [[ -f "template/template.env" ]]; then
-        cp "template/template.env" ".env"
-        ok "已复制 .env"
-    else
-        warn "未找到 template/template.env"
-    fi
+    cp template/bot_config_template.toml config/bot_config.toml
+    cp template/model_config_template.toml config/model_config.toml  
+    cp template/template.env .env
+    ok "MaiBot 完成"
 
-    # 安装 Napcat Adapter 依赖
+    # Adapter 安装
     cd "$DEPLOY_DIR/MaiBot-Napcat-Adapter" || err "无法进入 Adapter 目录"
     uv venv .venv
-    source .venv/bin/activate
-    info "安装 Napcat Adapter 依赖..."
+    . .venv/bin/activate
     uv pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-    ok "Adapter 依赖已安装"
-
-    # 复制 Adapter 配置文件
-    if [[ -f "template/template_config.toml" ]]; then
-        cp "template/template_config.toml" "config.toml"
-        ok "已复制 Adapter config.toml"
-    else
-        warn "未找到 template/template_config.toml"
-    fi
-    
-    # 退出虚拟环境
+    cp template/template_config.toml config.toml
     deactivate
     ok "Python 依赖安装完成"
 }
 
 update_shell_config() {
-    local path_export='export PATH="$HOME/.local/bin/maibot:$PATH"'
-    local fish_path_set='set -gx PATH "$HOME/.local/bin/maibot" $PATH'
+    local path_export='export PATH="$HOME/.local/bin:$PATH"'
+    local fish_path_set='set -gx PATH "$HOME/.local/bin" $PATH'
 
     [[ -f "$HOME/.bashrc" ]] && grep -qF "$path_export" "$HOME/.bashrc" || echo "$path_export" >> "$HOME/.bashrc"
     [[ -f "$HOME/.zshrc" ]] && grep -qF "$path_export" "$HOME/.zshrc" || echo "$path_export" >> "$HOME/.zshrc"
@@ -509,53 +421,12 @@ download-script() {
 
     # 调用 maibot 初始化
     if [[ -f "$TARGET_FILE" ]]; then
-        "$TARGET_FILE" --init="$SCRIPT_DIR"
-        ok "maibot 已初始化到 $SCRIPT_DIR"
+        "$TARGET_FILE" --init="$DEPLOY_DIR"
+        ok "maibot 已初始化到 $DEPLOY_DIR"
     else
         err "maibot 脚本下载失败，初始化中止"
     fi
 
-    # 生成第二个辅助文件（示例：记录下载时间）
-    echo "Downloaded at $(date)" > "$TARGET_DIR/download.log"
-    ok "辅助文件 download.log 已生成"
 }
 
-
-
-
-
-
-main() {
-    print_title "MaiBot 自动部署脚本"
-    detect_system
-
-    # 选择 GitHub 代理
-    select_github_proxy
-
-    # 安装系统依赖
-    install_system_dependencies
-
-    # 安装 uv
-    install_uv_environment
-
-    # 克隆仓库
-    clone_maibot
-
-    # 安装 Python 依赖
-    install_python_dependencies
-
-    # 更新 shell 配置
-    update_shell_config
-
-    # 下载 maibot 脚本
-    TARGET_PATH="$LOCAL_BIN/maibot"
-    download-script
-
-    ok "MaiBot 部署完成！ 执行: 
-    source  ~/.bashrc
-    maibot
-    来启动"
-}
-
-# 执行主函数
 main
