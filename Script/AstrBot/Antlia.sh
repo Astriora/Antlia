@@ -79,6 +79,8 @@ YELLOW='\033[33m'
 BLUE='\033[34m'
 CYAN='\033[36m'
 LOG_FILE="$SCRIPT_DIR/astrbot_install_log_$(date '+%Y%m%d_%H%M%S').log"
+LOCAL_BIN="$HOME/.local/bin"
+
 exec > >(tee -a "$LOG_FILE") 2>&1
 # 检查目录异常
 if [[ "$DEPLOY_DIR" == /dev/fd/* ]] || [[ "$DEPLOY_DIR" == /proc/self/fd/* ]] || [[ ! -d "$DEPLOY_DIR" ]]; then
