@@ -416,11 +416,10 @@ download-script() {
   local TARGET_DIR="$LOCAL_BIN"          # 目录
   local TARGET_FILE="$TARGET_DIR/astrbot" # 文件路径
 
-  mkdir -p "$TARGET_DIR"
 
   # 下载 start 文件到 TARGET_FILE
-  download_with_retry "$DOWNLOAD_URL" "$TARGET_FILE"
-  chmod +x "$TARGET_FILE"
+  $SUDO download_with_retry "$DOWNLOAD_URL" "$TARGET_FILE"
+  $SUDO chmod +x "$TARGET_FILE"
   ok " 启动脚本已下载到 $TARGET_FILE"
 
   #  初始化
