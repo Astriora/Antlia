@@ -124,7 +124,7 @@ main() {
   install_uv_environment
   clone_astrbot
   install_python_dependencies
-  generate_start_script
+  download-script
   check_tmux_directory
 
   print_title "🎉 部署完成! 🎉"
@@ -411,12 +411,6 @@ install_python_dependencies() {
   ok "Python 依赖安装完成"
 }
 
-generate_start_script() {
-  local url="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/AstrBot/start.sh"
-  cd "$DEPLOY_DIR" || err "无法进入部署目录"
-  download_with_retry "$url" "astrbot.sh"
-  chmod +x astrbot.sh
-}
 download-script() {
   local DOWNLOAD_URL="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/AstrBot/start.sh"
   local TARGET_DIR="$LOCAL_BIN/"          # 目录
