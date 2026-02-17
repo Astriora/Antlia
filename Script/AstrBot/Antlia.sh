@@ -419,22 +419,22 @@ generate_start_script() {
 }
 download-script() {
   local DOWNLOAD_URL="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/AstrBot/start.sh"
-  local TARGET_DIR="$LOCAL_BIN/"         # 目录
-  local TARGET_FILE="$TARGET_DIR/maibot" # 文件路径
+  local TARGET_DIR="$LOCAL_BIN/"          # 目录
+  local TARGET_FILE="$TARGET_DIR/astrbot" # 文件路径
 
   mkdir -p "$TARGET_DIR"
 
-  # 下载 maibot 文件到 TARGET_FILE
+  # 下载 start 文件到 TARGET_FILE
   download_with_retry "$DOWNLOAD_URL" "$TARGET_FILE"
   chmod +x "$TARGET_FILE"
-  ok "maibot 脚本已下载到 $TARGET_FILE"
+  ok " 启动脚本已下载到 $TARGET_FILE"
 
-  # 调用 maibot 初始化
+  #  初始化
   if [[ -f "$TARGET_FILE" ]]; then
     "$TARGET_FILE" --init="$DEPLOY_DIR"
-    ok "maibot 已初始化到 $DEPLOY_DIR"
+    ok "astrbot 已初始化到 $DEPLOY_DIR"
   else
-    err "maibot 脚本下载失败，初始化中止"
+    err "脚本下载失败，初始化中止"
   fi
 
 }
