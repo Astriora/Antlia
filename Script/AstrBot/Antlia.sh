@@ -415,7 +415,7 @@ install_python_dependencies() {
 
 download-script() {
   local DOWNLOAD_URL="${GITHUB_PROXY}https://github.com/Astriora/Antlia/raw/refs/heads/main/Script/AstrBot/start.sh"
-  local TARGET_DIR="$LOCAL_BIN/"          # 目录
+  local TARGET_DIR="$LOCAL_BIN"          # 目录
   local TARGET_FILE="$TARGET_DIR/astrbot" # 文件路径
 
   mkdir -p "$TARGET_DIR"
